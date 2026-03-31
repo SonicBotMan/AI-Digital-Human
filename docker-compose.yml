@@ -1,0 +1,139 @@
+# =============================================================================
+# AI Digital Human - Docker Compose (Local Development)
+# =============================================================================
+# Usage:
+#   docker compose up -d              # start all services
+#   docker compose logs -f api        # follow api logs
+#   docker compose down -v            # stop and remove volumes
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: digitalhuman-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-digitalhuman}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-digitalhuman_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-digitalhuman}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-digitalhuman}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - digitalhuman-net
+
+  # ---------------------------------------------------------------------------
+  # Redis 7
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: digitalhuman-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - digitalhuman-net
+
+  # ---------------------------------------------------------------------------
+  # Qdrant Vector Database
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: digitalhuman-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - digitalhuman-net
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: digitalhuman-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-digitalhuman}:${POSTGRES_PASSWORD:-digitalhuman_dev}@postgres:5432/${POSTGRES_DB:-digitalhuman}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      QDRANT_HOST: ${QDRANT_HOST:-qdrant}
+      QDRANT_PORT: ${QDRANT_PORT:-6333}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-your-key-here}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - digitalhuman-net
+
+  # ---------------------------------------------------------------------------
+  # Next.js Frontend
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: digitalhuman-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    networks:
+      - digitalhuman-net
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  digitalhuman-net:
+    driver: bridge
+    name: digitalhuman-net
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    name: digitalhuman-postgres-data
+  redis_data:
+    name: digitalhuman-redis-data
+  qdrant_data:
+    name: digitalhuman-qdrant-data

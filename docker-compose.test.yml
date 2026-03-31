@@ -1,0 +1,132 @@
+# =============================================================================
+# AI Digital Human - Docker Compose (Test Environment)
+# =============================================================================
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d    # start test services
+#   docker compose -f docker-compose.test.yml down      # stop (tmpfs auto-cleaned)
+# =============================================================================
+# Uses tmpfs for all data — zero persistence, fast teardown.
+# Ports offset by +10000 to avoid conflicts with dev environment.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 (test)
+  # ---------------------------------------------------------------------------
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: digitalhuman-test-postgres
+    restart: "no"
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: digitalhuman_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - digitalhuman-test-net
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 (test)
+  # ---------------------------------------------------------------------------
+  redis-test:
+    image: redis:7-alpine
+    container_name: digitalhuman-test-redis
+    restart: "no"
+    ports:
+      - "16379:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - digitalhuman-test-net
+
+  # ---------------------------------------------------------------------------
+  # Qdrant Vector Database (test)
+  # ---------------------------------------------------------------------------
+  qdrant-test:
+    image: qdrant/qdrant:latest
+    container_name: digitalhuman-test-qdrant
+    restart: "no"
+    ports:
+      - "16333:6333" # REST API
+      - "16334:6334" # gRPC
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    tmpfs:
+      - /qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - digitalhuman-test-net
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend (test)
+  # ---------------------------------------------------------------------------
+  api-test:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: digitalhuman-test-api
+    restart: "no"
+    ports:
+      - "18000:8000"
+    environment:
+      DATABASE_URL: postgresql://test_user:test_password@postgres-test:5432/digitalhuman_test
+      REDIS_URL: redis://redis-test:6379/0
+      QDRANT_HOST: qdrant-test
+      QDRANT_PORT: 6333
+      OPENAI_API_KEY: sk-test-key-not-real
+      SECRET_KEY: test-secret-key-do-not-use-in-prod
+      TESTING: "true"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+      qdrant-test:
+        condition: service_healthy
+    networks:
+      - digitalhuman-test-net
+
+  # ---------------------------------------------------------------------------
+  # Next.js Frontend (test)
+  # ---------------------------------------------------------------------------
+  web-test:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: digitalhuman-test-web
+    restart: "no"
+    ports:
+      - "13000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:18000
+      API_URL: http://api-test:8000
+      TESTING: "true"
+    depends_on:
+      - api-test
+    networks:
+      - digitalhuman-test-net
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  digitalhuman-test-net:
+    driver: bridge
+    name: digitalhuman-test-net
