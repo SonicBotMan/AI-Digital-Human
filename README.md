@@ -29,7 +29,7 @@ Multimodal AI digital human with face recognition, memory system, and knowledge 
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/SonicBotMan/ai-digital-human
+git clone https://github.com/SonicBotMan/AI-Digital-Human
 cd AI-Digital-Human
 
 # 2. Configure API keys

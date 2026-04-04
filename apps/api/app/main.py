@@ -16,23 +16,24 @@ from contextlib import asynccontextmanager
 
 
 async def _register_mcp_services() -> None:
-    from app.dependencies import get_db, get_chat_service, get_face_service, get_llm_service, get_memory_service
+    from app.db.session import AsyncSessionLocal
+    from app.dependencies import get_chat_service, get_face_service, get_llm_service, get_memory_service
     from app.mcp.registry import MCPToolServices, register_mcp_services
 
-    db = await get_db()
-    llm = await get_llm_service(db)
-    memory = await get_memory_service()
-    face = await get_face_service()
-    chat = await get_chat_service(db)
+    async with AsyncSessionLocal() as db:
+        llm = await get_llm_service(db)
+        memory = await get_memory_service()
+        face = await get_face_service()
+        chat = await get_chat_service(db)
 
-    register_mcp_services(
-        MCPToolServices(
-            chat_service=chat,
-            llm_service=llm,
-            memory_service=memory,
-            face_service=face,
+        register_mcp_services(
+            MCPToolServices(
+                chat_service=chat,
+                llm_service=llm,
+                memory_service=memory,
+                face_service=face,
+            )
         )
-    )
 
 
 @asynccontextmanager

@@ -181,8 +181,8 @@ async def get_memory_service() -> Any:
     return _get_memory_service()
 
 
-async def get_graph_service() -> Any:
-    return _get_graph_service()
+async def get_graph_service(db: DbSession) -> Any:
+    return _get_graph_service(db)
 
 
 # Annotated aliases for concise injection in route handlers

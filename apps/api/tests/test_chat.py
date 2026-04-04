@@ -29,9 +29,14 @@ async def _register_and_login(async_client: AsyncClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-async def _mock_chat_service(
-    return_value: dict,
-) -> None:
+def _override_get_chat_service(mock_svc):
+    async def _override():
+        return mock_svc
+
+    return _override
+
+
+async def _mock_chat_service() -> None:
     mock_svc = AsyncMock(name="ChatService")
     conv_id = str(uuid.uuid4())
     mock_svc.chat.return_value = {
