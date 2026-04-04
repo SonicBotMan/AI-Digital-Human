@@ -1,14 +1,33 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
+import { ThemeProvider } from "@/components/layout/ThemeProvider";
+import { AuthProvider } from "@/components/layout/AuthProvider";
+import { CookieConsent } from "@/components/ui/cookie-consent";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "AI Digital Human",
   description: "Knowledge graph visualization and AI chat platform",
+  openGraph: {
+    title: "AI Digital Human",
+    description: "Knowledge graph visualization and AI chat platform",
+    url: "https://wen.pmparker.net",
+    type: "website",
+    images: [
+      {
+        url: "https://wen.pmparker.net/og-image.png",
+        alt: "AI Digital Human",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AI Digital Human",
+    description: "Knowledge graph visualization and AI chat platform",
+  },
 };
 
 export default function RootLayout({
@@ -17,15 +36,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar />
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <Header />
-            <main className="flex-1 overflow-y-auto">{children}</main>
-          </div>
-        </div>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppShell>{children}</AppShell>
+            <CookieConsent />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

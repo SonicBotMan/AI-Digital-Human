@@ -27,12 +27,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # --- Qdrant ---
+    QDRANT_MODE: str = "local"  # "local" or "server"
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_GRPC_PORT: int = 6334
     QDRANT_URL: str = "http://localhost:6333"
     QDRANT_COLLECTION: str = "face_embeddings"
-    MEMORY_EMBEDDING_DIM: int = 1536
+    MEMORY_EMBEDDING_DIM: int = 1024
 
     # --- LLM Provider Selection (openai/glm/minimax) ---
     LLM_PROVIDER: str = "glm"
@@ -72,11 +73,15 @@ class Settings(BaseSettings):
     WHISPER_COMPUTE_TYPE: str = "float16"
 
     # --- CORS ---
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: list[str] = ["https://wen.pmparker.net"]
 
     # --- JWT Auth ---
-    SECRET_KEY: str = "change-me-in-production"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "change-me-in-production"
 
 
 settings = Settings()

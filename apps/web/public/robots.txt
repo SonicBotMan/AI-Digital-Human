@@ -1,0 +1,12 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /knowledge
+Allow: /chat
+Allow: /privacy
+Allow: /terms
+Allow: /api-docs
+Disallow: /admin
+Disallow: /api
+
+Sitemap: https://wen.pmparker.net/sitemap.xml

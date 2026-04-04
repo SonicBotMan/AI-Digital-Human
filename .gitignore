@@ -87,3 +87,7 @@ Desktop.ini
 *.log
 *.tmp
 .cache/
+
+# Local data (SQLite DB, Qdrant storage)
+data/
+models/

@@ -10,7 +10,7 @@ import {
   AlertCircle,
   Sparkles,
 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { adminApi, ApiError } from "@/lib/adminApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -70,7 +70,7 @@ export function StyleConfigurator() {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.get<SpeakingStyle[]>("/admin/styles");
+      const data = await adminApi.get<SpeakingStyle[]>("/admin/styles");
       setStyles(data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load styles");
@@ -126,9 +126,9 @@ export function StyleConfigurator() {
         config: JSON.parse(form.config),
       };
       if (editingId) {
-        await api.put(`/admin/styles/${editingId}`, payload);
+        await adminApi.put(`/admin/styles/${editingId}`, payload);
       } else {
-        await api.post("/admin/styles", payload);
+        await adminApi.post("/admin/styles", payload);
       }
       setFormOpen(false);
       fetchStyles();
@@ -143,7 +143,7 @@ export function StyleConfigurator() {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
-      await api.delete(`/admin/styles/${deleteTarget.id}`);
+      await adminApi.delete(`/admin/styles/${deleteTarget.id}`);
       setDeleteTarget(null);
       fetchStyles();
     } catch (err) {
@@ -157,7 +157,7 @@ export function StyleConfigurator() {
 
   async function handleSetDefault(style: SpeakingStyle) {
     try {
-      await api.put(`/admin/styles/${style.id}`, { is_default: true });
+      await adminApi.put(`/admin/styles/${style.id}`, { is_default: true });
       fetchStyles();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to set default");

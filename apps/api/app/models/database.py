@@ -54,6 +54,7 @@ class User(TimestampMixin, Base):
         index=True,
         nullable=False,
     )
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
     person_profile: Mapped["PersonProfile | None"] = relationship(
         "PersonProfile",
@@ -68,6 +69,11 @@ class User(TimestampMixin, Base):
     )
     knowledge_entities: Mapped[list["KnowledgeEntity"]] = relationship(
         "KnowledgeEntity",
+        back_populates="user",
+        lazy="selectin",
+    )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        "RefreshToken",
         back_populates="user",
         lazy="selectin",
     )
@@ -252,6 +258,7 @@ class ModelConfig(TimestampMixin, Base):
     stt_model: Mapped[str] = mapped_column(String(255), nullable=False)
     temperature: Mapped[float] = mapped_column(nullable=False, default=0.7)
     max_tokens: Mapped[int] = mapped_column(nullable=False, default=4096)
+    vendor_configs: Mapped[dict] = mapped_column(JSON, nullable=False, default=lambda: {})
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -260,6 +267,24 @@ class ModelConfig(TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<ModelConfig id={self.id!s} llm={self.llm_model!r} active={self.is_active}>"
+
+
+# AdminProfile
+
+
+class AdminProfile(TimestampMixin, Base):
+    __tablename__ = "admin_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    # Store the hashed password for admin
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<AdminProfile id={self.id!s}>"
 
 
 # KnowledgeEntity
@@ -369,3 +394,41 @@ class KnowledgeRelationship(Base):
             f"type={self.relationship_type!r} "
             f"source={self.source_entity_id!s} -> target={self.target_entity_id!s}>"
         )
+
+
+# RefreshToken
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    revoked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="refresh_tokens")
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken id={self.id!s} user_id={self.user_id!s} revoked={self.revoked}>"

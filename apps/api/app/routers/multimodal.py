@@ -13,6 +13,7 @@ from app.dependencies import (
     MemoryServiceDep,
     SettingsDep,
     STTServiceDep,
+    UserAuthDep,
     VisionServiceDep,
 )
 from app.models.schemas import MultimodalAnalysisResult, StandardResponse
@@ -53,6 +54,7 @@ async def _file_to_data_uri(upload: UploadFile) -> str | None:
     response_model=StandardResponse[MultimodalAnalysisResult],
 )
 async def analyze(
+    current_user: UserAuthDep,
     settings: SettingsDep,
     face: FaceServiceDep,
     stt: STTServiceDep,

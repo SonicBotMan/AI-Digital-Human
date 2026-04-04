@@ -10,7 +10,7 @@ import {
   AlertCircle,
   FileText,
 } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { adminApi, ApiError } from "@/lib/adminApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,7 +66,7 @@ export function SystemPromptEditor() {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.get<SystemPrompt[]>("/admin/prompts");
+      const data = await adminApi.get<SystemPrompt[]>("/admin/prompts");
       setPrompts(data);
     } catch (err) {
       setError(
@@ -109,9 +109,9 @@ export function SystemPromptEditor() {
     try {
       setSaving(true);
       if (editingId) {
-        await api.put(`/admin/prompts/${editingId}`, form);
+        await adminApi.put(`/admin/prompts/${editingId}`, form);
       } else {
-        await api.post("/admin/prompts", form);
+        await adminApi.post("/admin/prompts", form);
       }
       setFormOpen(false);
       fetchPrompts();
@@ -126,7 +126,7 @@ export function SystemPromptEditor() {
     if (!deleteTarget) return;
     try {
       setDeleting(true);
-      await api.delete(`/admin/prompts/${deleteTarget.id}`);
+      await adminApi.delete(`/admin/prompts/${deleteTarget.id}`);
       setDeleteTarget(null);
       fetchPrompts();
     } catch (err) {
@@ -140,7 +140,7 @@ export function SystemPromptEditor() {
 
   async function handleSetDefault(prompt: SystemPrompt) {
     try {
-      await api.put(`/admin/prompts/${prompt.id}`, { is_default: true });
+      await adminApi.put(`/admin/prompts/${prompt.id}`, { is_default: true });
       fetchPrompts();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to set default");

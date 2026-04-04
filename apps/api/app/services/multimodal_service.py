@@ -82,7 +82,7 @@ class _VisionServiceProto(Protocol):
 
 
 class _MemoryServiceProto(Protocol):
-    async def get_all_face_embeddings(self) -> list[dict]: ...
+    def get_all_face_embeddings(self) -> list[dict]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +486,7 @@ class MultimodalService:
 
     async def _get_stored_embeddings(self) -> list[dict]:
         try:
-            return await self._memory.get_all_face_embeddings()
+            return await asyncio.to_thread(self._memory.get_all_face_embeddings)
         except Exception:
             logger.debug("Memory service unavailable, skipping face lookup")
             return []

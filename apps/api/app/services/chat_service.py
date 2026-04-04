@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 from sqlalchemy import select
@@ -80,6 +81,7 @@ class ChatService:
         self._max_context_length: int = getattr(settings, "MAX_CONTEXT_LENGTH", None) or MAX_CONTEXT_LENGTH
         self._memory_search_limit: int = getattr(settings, "MEMORY_SEARCH_LIMIT", None) or MEMORY_SEARCH_LIMIT
         self._history_limit: int = getattr(settings, "CONVERSATION_HISTORY_LIMIT", None) or CONVERSATION_HISTORY_LIMIT
+        self._style_directive: str | None = None
 
         logger.info(
             "ChatService initialised — max_context=%d memory_limit=%d",
@@ -182,6 +184,79 @@ class ChatService:
             "entities_extracted": entities_extracted,
         }
 
+    async def stream_chat(
+        self,
+        user_id: str | uuid.UUID,
+        message: str,
+        conversation_id: str | uuid.UUID | None = None,
+        multimodal_context: dict[str, Any] | None = None,
+        *,
+        system_prompt_override: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        user_uuid = self._to_uuid(user_id)
+
+        if conversation_id is not None:
+            conv_uuid = self._to_uuid(conversation_id)
+            conversation = await self._db.get(Conversation, conv_uuid)
+            if conversation is None:
+                raise ChatServiceError(f"Conversation {conversation_id} not found")
+        else:
+            conv_uuid = await self.create_conversation(user_uuid)
+            conversation = await self._db.get(Conversation, conv_uuid)
+
+        user_msg = Message(
+            conversation_id=conv_uuid,
+            role="user",
+            content=message,
+            metadata_=multimodal_context,
+        )
+        self._db.add(user_msg)
+        await self._db.flush()
+
+        context_str = await self._build_context(user_uuid, message, multimodal_context)
+        history = await self.get_conversation_history(conv_uuid, limit=self._history_limit)
+
+        llm_messages: list[dict[str, str]] = []
+        for msg in history[:-1]:
+            llm_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        if not llm_messages or llm_messages[-1]["role"] != "user":
+            llm_messages.append({"role": "user", "content": message})
+
+        effective_system_prompt = system_prompt_override or self._system_prompt
+        enriched_system = f"{effective_system_prompt}\n\n{context_str}" if context_str else effective_system_prompt
+        enriched_system = self._truncate(enriched_system, self._max_context_length)
+
+        collected_tokens: list[str] = []
+        async for token in self._llm.stream_chat_completion(
+            messages=llm_messages,
+            system_prompt=enriched_system,
+        ):
+            collected_tokens.append(token)
+            yield {"type": "token", "content": token}
+
+        response_text = "".join(collected_tokens)
+
+        assistant_msg = Message(
+            conversation_id=conv_uuid,
+            role="assistant",
+            content=response_text,
+        )
+        self._db.add(assistant_msg)
+        await self._db.flush()
+        await self._db.commit()
+
+        try:
+            await self._post_process(user_uuid, message, response_text)
+        except Exception:
+            logger.warning("Post-processing failed for conversation %s", conv_uuid, exc_info=True)
+
+        yield {
+            "type": "end",
+            "conversation_id": str(conv_uuid),
+            "message_id": str(assistant_msg.id),
+        }
+
     async def get_conversation_history(
         self,
         conversation_id: str | uuid.UUID,
@@ -251,9 +326,91 @@ class ChatService:
         logger.info("Created conversation %s for user %s", conversation.id, user_uuid)
         return conversation.id
 
+    async def list_conversations(
+        self,
+        user_id: str | uuid.UUID,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        user_uuid = self._to_uuid(user_id)
+        offset = (page - 1) * page_size
+
+        from sqlalchemy import func, select
+
+        count_stmt = select(func.count(Conversation.id)).where(Conversation.user_id == user_uuid)
+        count_result = await self._db.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        stmt = (
+            select(Conversation)
+            .where(Conversation.user_id == user_uuid)
+            .order_by(Conversation.updated_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        result = await self._db.execute(stmt)
+        conversations = result.scalars().all()
+
+        items = []
+        for conv in conversations:
+            msg_count_stmt = select(func.count(Message.id)).where(Message.conversation_id == conv.id)
+            msg_count_result = await self._db.execute(msg_count_stmt)
+            msg_count = msg_count_result.scalar() or 0
+
+            items.append(
+                {
+                    "id": str(conv.id),
+                    "title": conv.title,
+                    "created_at": conv.created_at.isoformat() if conv.created_at else None,
+                    "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                    "message_count": msg_count,
+                }
+            )
+
+        return items, total
+
     # ------------------------------------------------------------------
     # Context Assembly
     # ------------------------------------------------------------------
+
+    async def _ensure_style_directive(self) -> str:
+        from sqlalchemy import select
+        from app.models.database import SpeakingStyle
+
+        style_id = getattr(self._settings, "DEFAULT_SPEAKING_STYLE_ID", None)
+        if style_id is None:
+            stmt = select(SpeakingStyle).where(SpeakingStyle.is_default == True).limit(1)
+        else:
+            stmt = select(SpeakingStyle).where(SpeakingStyle.id == style_id).limit(1)
+
+        result = await self._db.execute(stmt)
+        style = result.scalar_one_or_none()
+
+        if style is None:
+            self._style_directive = ""
+            return ""
+
+        cfg = style.style_config or {}
+        parts = []
+        if tone := cfg.get("tone"):
+            parts.append(f"- Tone: {tone}")
+        if pace := cfg.get("pace"):
+            parts.append(f"- Pace: {pace}")
+        if formality := cfg.get("formality"):
+            parts.append(f"- Formality: {formality}")
+        if vocab := cfg.get("vocabulary_level"):
+            parts.append(f"- Vocabulary: {vocab}")
+        if cfg.get("use_emoji"):
+            parts.append("- You may use emoji")
+        if not cfg.get("humor_allowed", True):
+            parts.append("- Avoid humor")
+
+        if parts:
+            self._style_directive = "\n[Speaking Style]\n" + "\n".join(parts)
+        else:
+            self._style_directive = ""
+
+        return self._style_directive
 
     async def _build_context(
         self,
@@ -276,6 +433,10 @@ class ChatService:
             Newline-separated context block for the system prompt.
         """
         parts: list[str] = []
+
+        style_directive = await self._ensure_style_directive()
+        if style_directive:
+            parts.append(style_directive)
 
         try:
             profile = await self._graph.build_user_profile(user_id)

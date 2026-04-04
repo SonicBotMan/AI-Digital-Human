@@ -76,6 +76,31 @@
   }
 }
 
+/* Markdown rendering in chat messages */
+.markdown-body {
+  font-size: inherit;
+  line-height: inherit;
+  word-break: break-word;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+.markdown-body input[type="checkbox"] {
+  margin-right: 0.375rem;
+  accent-color: hsl(var(--primary));
+}
+
 /* Graph animations */
 @keyframes graph-node-pulse {
   0%,

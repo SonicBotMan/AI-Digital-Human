@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.dependencies import GraphServiceDep
+from app.dependencies import GraphServiceDep, UserAuthDep
 from app.models.schemas import (
     KnowledgeEdge,
     KnowledgeGraphResponse,
@@ -67,9 +67,12 @@ class RelationshipCreateRequest(BaseModel):
 async def get_graph(
     user_id: UUID,
     service: GraphServiceDep,
+    current_user: UserAuthDep,
     depth: int = Query(default=2, ge=1, le=5, description="BFS traversal depth"),
 ) -> StandardResponse[KnowledgeGraphResponse]:
     """Get the knowledge graph for a user in React Flow compatible format."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")
     raw = await service.get_user_subgraph(user_id=user_id, depth=depth)
 
     nodes = [
@@ -113,8 +116,11 @@ async def get_graph(
 async def list_entities(
     user_id: UUID,
     service: GraphServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[list[KnowledgeNode]]:
     """List all entities in a user's knowledge graph."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")
     raw = await service.get_user_subgraph(user_id=user_id, depth=0)
 
     entities = [
@@ -143,8 +149,11 @@ async def add_entity(
     user_id: UUID,
     body: EntityCreateRequest,
     service: GraphServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[KnowledgeNode]:
     """Add a new entity to the user's knowledge graph."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")
     entity_id = await service.add_entity(
         user_id=user_id,
         entity_type=body.entity_type,
@@ -174,8 +183,11 @@ async def add_entity(
 async def list_relationships(
     user_id: UUID,
     service: GraphServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[list[KnowledgeEdge]]:
     """List all relationships in a user's knowledge graph."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")
     raw = await service.get_user_subgraph(user_id=user_id, depth=2)
 
     edges = [
@@ -205,8 +217,11 @@ async def add_relationship(
     user_id: UUID,
     body: RelationshipCreateRequest,
     service: GraphServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[KnowledgeEdge]:
     """Add a new relationship between two entities in the knowledge graph."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")
     rel_id = await service.add_relationship(
         source_id=body.source_id,
         target_id=body.target_id,

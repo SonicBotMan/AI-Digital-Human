@@ -5,9 +5,11 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.dependencies import DbSession
-from app.models.database import ModelConfig, SpeakingStyle, SystemPrompt
+from app.core.security import hash_password, verify_password
+from app.dependencies import AdminAuthDep, DbSession
+from app.models.database import AdminProfile, ModelConfig, SpeakingStyle, SystemPrompt
 from app.models.schemas import (
+    AdminPasswordChange,
     ModelConfigResponse,
     ModelConfigUpdate,
     SpeakingStyleCreate,
@@ -41,7 +43,7 @@ def _style_not_found(style_id: uuid.UUID) -> HTTPException:
 
 
 @router.get("/prompts", response_model=StandardResponse[list[SystemPromptResponse]])
-async def list_prompts(db: DbSession) -> StandardResponse[list[SystemPromptResponse]]:
+async def list_prompts(admin: AdminAuthDep, db: DbSession) -> StandardResponse[list[SystemPromptResponse]]:
     result = await db.execute(select(SystemPrompt).order_by(SystemPrompt.created_at.desc()))
     prompts = result.scalars().all()
     return StandardResponse(
@@ -53,6 +55,7 @@ async def list_prompts(db: DbSession) -> StandardResponse[list[SystemPromptRespo
 
 @router.post("/prompts", response_model=StandardResponse[SystemPromptResponse], status_code=201)
 async def create_prompt(
+    admin: AdminAuthDep,
     body: SystemPromptCreate,
     db: DbSession,
 ) -> StandardResponse[SystemPromptResponse]:
@@ -78,6 +81,7 @@ async def create_prompt(
 
 @router.get("/prompts/{prompt_id}", response_model=StandardResponse[SystemPromptResponse])
 async def get_prompt(
+    admin: AdminAuthDep,
     prompt_id: uuid.UUID,
     db: DbSession,
 ) -> StandardResponse[SystemPromptResponse]:
@@ -93,6 +97,7 @@ async def get_prompt(
 
 @router.put("/prompts/{prompt_id}", response_model=StandardResponse[SystemPromptResponse])
 async def update_prompt(
+    admin: AdminAuthDep,
     prompt_id: uuid.UUID,
     body: SystemPromptUpdate,
     db: DbSession,
@@ -123,6 +128,7 @@ async def update_prompt(
 
 @router.delete("/prompts/{prompt_id}", response_model=StandardResponse[None])
 async def delete_prompt(
+    admin: AdminAuthDep,
     prompt_id: uuid.UUID,
     db: DbSession,
 ) -> StandardResponse[None]:
@@ -139,6 +145,7 @@ async def delete_prompt(
     response_model=StandardResponse[SystemPromptResponse],
 )
 async def set_default_prompt(
+    admin: AdminAuthDep,
     prompt_id: uuid.UUID,
     db: DbSession,
 ) -> StandardResponse[SystemPromptResponse]:
@@ -166,7 +173,7 @@ async def set_default_prompt(
 
 
 @router.get("/styles", response_model=StandardResponse[list[SpeakingStyleResponse]])
-async def list_styles(db: DbSession) -> StandardResponse[list[SpeakingStyleResponse]]:
+async def list_styles(admin: AdminAuthDep, db: DbSession) -> StandardResponse[list[SpeakingStyleResponse]]:
     result = await db.execute(select(SpeakingStyle).order_by(SpeakingStyle.created_at.desc()))
     styles = result.scalars().all()
     return StandardResponse(
@@ -178,6 +185,7 @@ async def list_styles(db: DbSession) -> StandardResponse[list[SpeakingStyleRespo
 
 @router.post("/styles", response_model=StandardResponse[SpeakingStyleResponse], status_code=201)
 async def create_style(
+    admin: AdminAuthDep,
     body: SpeakingStyleCreate,
     db: DbSession,
 ) -> StandardResponse[SpeakingStyleResponse]:
@@ -204,6 +212,7 @@ async def create_style(
 
 @router.get("/styles/{style_id}", response_model=StandardResponse[SpeakingStyleResponse])
 async def get_style(
+    admin: AdminAuthDep,
     style_id: uuid.UUID,
     db: DbSession,
 ) -> StandardResponse[SpeakingStyleResponse]:
@@ -219,6 +228,7 @@ async def get_style(
 
 @router.put("/styles/{style_id}", response_model=StandardResponse[SpeakingStyleResponse])
 async def update_style(
+    admin: AdminAuthDep,
     style_id: uuid.UUID,
     body: SpeakingStyleUpdate,
     db: DbSession,
@@ -249,6 +259,7 @@ async def update_style(
 
 @router.delete("/styles/{style_id}", response_model=StandardResponse[None])
 async def delete_style(
+    admin: AdminAuthDep,
     style_id: uuid.UUID,
     db: DbSession,
 ) -> StandardResponse[None]:
@@ -266,7 +277,7 @@ async def delete_style(
 
 
 @router.get("/models", response_model=StandardResponse[ModelConfigResponse])
-async def get_model_config(db: DbSession) -> StandardResponse[ModelConfigResponse]:
+async def get_model_config(admin: AdminAuthDep, db: DbSession) -> StandardResponse[ModelConfigResponse]:
     result = await db.execute(
         select(ModelConfig).where(ModelConfig.is_active.is_(True)).order_by(ModelConfig.updated_at.desc())
     )
@@ -274,8 +285,8 @@ async def get_model_config(db: DbSession) -> StandardResponse[ModelConfigRespons
 
     if not config:
         config = ModelConfig(
-            llm_model="openai:gpt-4o",
-            vision_model="gpt-4o",
+            llm_model="glm-4-flash",
+            vision_model="glm-4v-flash",
             stt_model="turbo",
             temperature=0.7,
             max_tokens=4096,
@@ -294,6 +305,7 @@ async def get_model_config(db: DbSession) -> StandardResponse[ModelConfigRespons
 
 @router.put("/models", response_model=StandardResponse[ModelConfigResponse])
 async def update_model_config(
+    admin: AdminAuthDep,
     body: ModelConfigUpdate,
     db: DbSession,
 ) -> StandardResponse[ModelConfigResponse]:
@@ -304,8 +316,8 @@ async def update_model_config(
 
     if not config:
         config = ModelConfig(
-            llm_model="openai:gpt-4o",
-            vision_model="gpt-4o",
+            llm_model="glm-4-flash",
+            vision_model="glm-4v-flash",
             stt_model="turbo",
             temperature=0.7,
             max_tokens=4096,
@@ -326,3 +338,48 @@ async def update_model_config(
         message="Model configuration updated",
         data=ModelConfigResponse.model_validate(config),
     )
+
+
+# ---------------------------------------------------------------------------
+# Account Settings
+# ---------------------------------------------------------------------------
+
+
+@router.post("/password", response_model=StandardResponse[None])
+async def change_admin_password(
+    admin: AdminAuthDep,
+    body: AdminPasswordChange,
+    db: DbSession,
+) -> StandardResponse[None]:
+    """Change the admin password.
+
+    Verify the current password, then hash and store the new one in the DB.
+    """
+    from app.core.config import settings
+
+    # 1. Get current hash from DB (if exists) or use config default
+    result = await db.execute(select(AdminProfile).limit(1))
+    profile = result.scalars().first()
+
+    current_hash = profile.password_hash if profile else None
+
+    # 2. Verify current password
+    if current_hash:
+        is_valid = verify_password(body.current_password, current_hash)
+    else:
+        # Fallback to config default if DB profile hasn't been created yet
+        is_valid = body.current_password == settings.ADMIN_PASSWORD
+
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid current password")
+
+    # 3. Update or create profile with new hash
+    new_hash = hash_password(body.new_password)
+    if profile:
+        profile.password_hash = new_hash
+    else:
+        profile = AdminProfile(password_hash=new_hash)
+        db.add(profile)
+
+    await db.flush()
+    return StandardResponse(success=True, message="Admin password updated successfully")

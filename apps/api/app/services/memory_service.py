@@ -40,18 +40,27 @@ class MemoryService:
         if self._client is not None:
             return self._client
 
-        logger.info(
-            "Connecting to Qdrant at %s:%d (gRPC %d)",
-            self._settings.QDRANT_HOST,
-            self._settings.QDRANT_PORT,
-            self._settings.QDRANT_GRPC_PORT,
-        )
-        self._client = QdrantClient(
-            host=self._settings.QDRANT_HOST,
-            port=self._settings.QDRANT_PORT,
-            grpc_port=self._settings.QDRANT_GRPC_PORT,
-            prefer_grpc=True,
-        )
+        if getattr(self._settings, "QDRANT_MODE", None) == "local":
+            # Local mode: in-process storage, no server needed
+            # Use ./data/qdrant to avoid absolute path permission issues on macOS
+            logger.info("Using Qdrant local mode at ./data/qdrant")
+            self._client = QdrantClient(
+                location="./data/qdrant",
+            )
+        else:
+            # Server mode: connect to Qdrant server
+            logger.info(
+                "Connecting to Qdrant at %s:%d (gRPC %d)",
+                self._settings.QDRANT_HOST,
+                self._settings.QDRANT_PORT,
+                self._settings.QDRANT_GRPC_PORT,
+            )
+            self._client = QdrantClient(
+                host=self._settings.QDRANT_HOST,
+                port=self._settings.QDRANT_PORT,
+                grpc_port=self._settings.QDRANT_GRPC_PORT,
+                prefer_grpc=True,
+            )
         return self._client
 
     def _ensure_collection(self, name: str, dim: int, distance: Distance = Distance.COSINE) -> None:
@@ -108,6 +117,28 @@ class MemoryService:
             return None
 
         return {**best.payload, "score": round(best.score, 4), "point_id": best.id}
+
+    def get_all_face_embeddings(self) -> list[dict[str, Any]]:
+        self._ensure_collection(FACE_COLLECTION, self._face_dim)
+
+        client = self._get_client()
+        points, _ = client.scroll(
+            collection_name=FACE_COLLECTION,
+            limit=1000,
+            with_payload=True,
+            with_vectors=True,
+        )
+        if not points:
+            return []
+
+        return [
+            {
+                **(point.payload or {}),
+                "embedding": point.vector,
+            }
+            for point in points
+            if point.vector is not None
+        ]
 
     def store_memory(
         self,

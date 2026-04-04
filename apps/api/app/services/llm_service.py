@@ -16,31 +16,46 @@ class LLMServiceError(Exception):
 
 
 class LLMService:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, vendor_configs: dict[str, Any] | None = None):
         self._settings = settings
         self._provider = settings.LLM_PROVIDER
         self._default_model = settings.DEFAULT_LLM_MODEL
         self._max_tokens = settings.MAX_TOKENS
         self._temperature = settings.TEMPERATURE
+        self._vendor_configs = vendor_configs or {}
 
         if self._provider == "glm":
-            if not settings.GLM_API_KEY:
+            glm_config = self._vendor_configs.get("glm", {})
+            api_key = glm_config.get("api_key") or settings.GLM_API_KEY
+            base_url = glm_config.get("base_url")
+
+            if not api_key:
                 raise LLMServiceError("GLM_API_KEY is required when LLM_PROVIDER=glm")
             from zhipuai import ZhipuAI
 
-            self._client = ZhipuAI(api_key=settings.GLM_API_KEY)
+            self._client = ZhipuAI(api_key=api_key, base_url=base_url)
             self._default_model = settings.GLM_MODEL
         elif self._provider == "minimax":
-            if not settings.MINIMAX_API_KEY:
+            minimax_config = self._vendor_configs.get("minimax", {})
+            api_key = minimax_config.get("api_key") or settings.MINIMAX_API_KEY
+            if not api_key:
                 raise LLMServiceError("MINIMAX_API_KEY is required when LLM_PROVIDER=minimax")
             self._client = None
             self._default_model = settings.MINIMAX_MODEL
         elif self._provider == "openai":
-            if not settings.OPENAI_API_KEY:
+            openai_config = self._vendor_configs.get("openai", {})
+            api_key = openai_config.get("api_key") or settings.OPENAI_API_KEY
+            base_url = openai_config.get("base_url")
+
+            if not api_key:
                 raise LLMServiceError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
             import aisuite as ai
 
-            self._client = ai.Client(provider_configs={"openai": {"api_key": settings.OPENAI_API_KEY}})
+            client_config = {"api_key": api_key}
+            if base_url:
+                client_config["base_url"] = base_url
+
+            self._client = ai.Client(provider_configs={"openai": client_config})
             self._default_model = settings.OPENAI_MODEL
         else:
             raise LLMServiceError(f"Unsupported LLM_PROVIDER: {self._provider}")
@@ -111,10 +126,12 @@ class LLMService:
         system_prompt: str | None = None,
         model: str | None = None,
     ) -> AsyncIterator[str]:
+        import asyncio
+
         resolved_model = model or self._default_model
         full_messages = self._build_messages(messages, system_prompt)
 
-        try:
+        def _sync_stream():
             if self._provider == "glm":
                 stream = self._client.chat.completions.create(
                     model=resolved_model,
@@ -140,6 +157,14 @@ class LLMService:
                 for chunk in stream:
                     if chunk.choices and chunk.choices[0].delta.content:
                         yield chunk.choices[0].delta.content
+
+        try:
+            loop = asyncio.get_running_loop()
+            for chunk in await asyncio.to_thread(lambda: list(_sync_stream())):
+                yield chunk
+        except RuntimeError:
+            for chunk in _sync_stream():
+                yield chunk
         except Exception as exc:
             logger.exception("stream_chat_completion failed — model=%s", resolved_model)
             raise LLMServiceError(f"LLM stream request failed: {exc}", provider_error=exc) from exc

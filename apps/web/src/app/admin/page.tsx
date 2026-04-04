@@ -1,12 +1,35 @@
 "use client";
 
-import { FileText, Sparkles, Cpu } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { FileText, Sparkles, Cpu, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SystemPromptEditor } from "@/components/admin/SystemPromptEditor";
 import { StyleConfigurator } from "@/components/admin/StyleConfigurator";
 import { ModelSelector } from "@/components/admin/ModelSelector";
+import { AccountSettings } from "@/components/admin/AccountSettings";
+import { isAdminAuthenticated } from "@/lib/adminAuth";
 
 export default function AdminPage() {
+  const router = useRouter();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    if (!isAdminAuthenticated()) {
+      router.replace("/admin/login");
+    } else {
+      setChecking(false);
+    }
+  }, [router]);
+
+  if (checking) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -30,6 +53,10 @@ export default function AdminPage() {
             <Cpu className="h-4 w-4" />
             Models
           </TabsTrigger>
+          <TabsTrigger value="security" className="gap-2">
+            <Loader2 className="h-4 w-4" />
+            Security
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="prompts" className="mt-6">
@@ -42,6 +69,10 @@ export default function AdminPage() {
 
         <TabsContent value="models" className="mt-6">
           <ModelSelector />
+        </TabsContent>
+
+        <TabsContent value="security" className="mt-6">
+          <AccountSettings />
         </TabsContent>
       </Tabs>
     </div>

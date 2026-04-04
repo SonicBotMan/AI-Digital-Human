@@ -8,6 +8,7 @@ import enum
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 from uuid import UUID
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -487,6 +488,10 @@ class ModelConfigUpdate(BaseSchema):
         le=32768,
         description="Maximum tokens for LLM responses",
     )
+    vendor_configs: dict[str, Any] | None = Field(
+        default=None,
+        description="Provider-specific settings (API keys, base URLs, etc.)",
+    )
 
 
 class ModelConfigResponse(BaseSchema):
@@ -498,9 +503,17 @@ class ModelConfigResponse(BaseSchema):
     stt_model: str = Field(description="Active STT model")
     temperature: float = Field(description="LLM sampling temperature")
     max_tokens: int = Field(description="Maximum response tokens")
+    vendor_configs: dict[str, Any] = Field(default_factory=dict, description="Provider-specific settings")
     is_active: bool = Field(description="Whether this config is the active one")
     created_at: datetime = Field(description="Creation timestamp")
     updated_at: datetime = Field(description="Last modification timestamp")
+
+
+class AdminPasswordChange(BaseSchema):
+    """Request to change the admin password."""
+
+    current_password: str = Field(description="Current password for verification")
+    new_password: str = Field(min_length=8, description="New secure password")
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +561,53 @@ class PersonProfileDetail(BaseSchema):
     face_registered: bool = Field(default=False, description="Whether at least one face is registered")
     created_at: datetime = Field(description="Profile creation timestamp")
     updated_at: datetime = Field(description="Last modification timestamp")
+
+
+# ---------------------------------------------------------------------------
+# Camera frame schemas
+# ---------------------------------------------------------------------------
+
+
+class CameraFrameRequest(BaseSchema):
+    image: str = Field(
+        description="Base64-encoded JPEG image from camera capture",
+        max_length=10_000_000,
+    )
+    user_id: str | None = Field(
+        default=None,
+        description="Optional user ID for face identification",
+    )
+    conversation_id: uuid.UUID | None = Field(
+        default=None,
+        description="Optional conversation ID to link analysis to chat context",
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata (capture_timestamp, frame_number, etc.)",
+    )
+
+
+class FaceDetectionResult(BaseSchema):
+    """Result of face detection on a camera frame."""
+
+    faces_found: int = Field(description="Number of faces detected in the frame")
+    identified: list[FaceMatchResult] = Field(
+        default_factory=list,
+        description="List of identified faces with confidence scores",
+    )
+
+
+class CameraAnalysisResponse(BaseSchema):
+    """Response from camera frame analysis."""
+
+    face_detection: FaceDetectionResult = Field(
+        description="Face detection and identification results",
+    )
+    visual_analysis: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Visual analysis from vision model",
+    )
+    timestamp: datetime = Field(description="When the analysis was performed")
 
 
 # ---------------------------------------------------------------------------

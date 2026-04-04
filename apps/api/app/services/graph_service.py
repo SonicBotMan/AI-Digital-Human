@@ -79,8 +79,14 @@ class GraphService:
     def _get_llm_client(self) -> ai.Client:
         if self._llm_client is None:
             provider_configs: dict[str, Any] = {}
-            if settings.OPENAI_API_KEY:
+            if settings.LLM_PROVIDER == "openai" and settings.OPENAI_API_KEY:
                 provider_configs["openai"] = {"api_key": settings.OPENAI_API_KEY}
+            elif settings.LLM_PROVIDER == "glm" and settings.GLM_API_KEY:
+                provider_configs["glm"] = {"api_key": settings.GLM_API_KEY}
+            elif settings.LLM_PROVIDER == "minimax" and settings.MINIMAX_API_KEY:
+                provider_configs["minimax"] = {"api_key": settings.MINIMAX_API_KEY}
+            else:
+                provider_configs["glm"] = {"api_key": settings.GLM_API_KEY or "dummy"}
             self._llm_client = ai.Client(provider_configs=provider_configs)
         return self._llm_client
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { createWebSocket } from "@/lib/api";
+import { createWebSocket, WS_CLOSE_AUTH_FAILURE } from "@/lib/api";
+import { clearTokens } from "@/lib/auth";
 
 export type AttachmentType = "image" | "audio" | "video";
 
@@ -113,17 +114,31 @@ export function useChat({
         }
 
         if (data.type === "end" && streamingMessageIdRef.current) {
+          let finalContent = "";
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === streamingMessageIdRef.current
-                ? {
-                    ...m,
-                    streaming: false,
-                    faceRecognition: data.face_recognition,
-                  }
-                : m,
-            ),
+            prev.map((m) => {
+              if (m.id === streamingMessageIdRef.current) {
+                finalContent = m.content;
+                return {
+                  ...m,
+                  streaming: false,
+                  faceRecognition: data.face_recognition,
+                };
+              }
+              return m;
+            })
           );
+
+          if (finalContent && typeof window !== "undefined" && window.speechSynthesis) {
+            // Basic markdown stripping for smoother TTS
+            const cleanText = finalContent.replace(/[#*`_~>-]/g, "").trim();
+            if (cleanText) {
+              const utterance = new SpeechSynthesisUtterance(cleanText);
+              utterance.lang = "zh-CN";
+              window.speechSynthesis.speak(utterance);
+            }
+          }
+
           streamingMessageIdRef.current = null;
           return;
         }
@@ -162,9 +177,15 @@ export function useChat({
       setError("WebSocket connection error");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!mountedRef.current) return;
       setConnectionState("disconnected");
+
+      if (event.code === WS_CLOSE_AUTH_FAILURE) {
+        clearTokens();
+        window.location.href = "/login";
+        return;
+      }
 
       if (reconnectAttemptRef.current < maxReconnectAttempts) {
         const delay = Math.min(1000 * 2 ** reconnectAttemptRef.current, 30_000);

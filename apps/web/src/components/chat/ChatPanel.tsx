@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Bot, User, Loader2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import type { ChatMessage } from "@/hooks/useChat";
 
 interface ChatPanelProps {
@@ -78,7 +79,11 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                 : "rounded-tl-sm bg-muted text-foreground",
             )}
           >
-            {message.content}
+            {isUser ? (
+              message.content
+            ) : (
+              <MarkdownRenderer content={message.content} />
+            )}
             {isStreaming && (
               <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-foreground/50" />
             )}

@@ -156,3 +156,29 @@ class FaceService:
             "embedding": embedding.tolist(),
             "dim": embedding.shape[0],
         }
+
+    def detect_faces(self, image_input: str | Path | np.ndarray | bytes) -> dict:
+        if isinstance(image_input, bytes):
+            arr = np.frombuffer(image_input, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                raise ValueError("Cannot decode bytes image data")
+        else:
+            img = _decode_image(image_input)
+        faces = self._get_app().get(img)
+
+        if not faces:
+            return {"faces": [], "count": 0}
+
+        face_list = []
+        for face in faces:
+            bbox = face.bbox.astype(int)
+            face_list.append(
+                {
+                    "bbox": bbox.tolist(),
+                    "det_score": float(face.det_score) if face.det_score else 0.0,
+                    "embedding": face.embedding.tolist() if face.embedding is not None else None,
+                }
+            )
+
+        return {"faces": face_list, "count": len(face_list)}

@@ -1,6 +1,66 @@
-# AI Digital Human - 数字人智能系统
+# AI Digital Human - Zero-Configuration Digital Human System
 
-基于多模态AI的数字人产品，支持人脸识别、记忆系统、知识图谱可视化。
+Multimodal AI digital human with face recognition, memory system, and knowledge graph visualization.
+
+---
+
+## 🇺🇸 English | [🇨🇳 中文](#中文说明)
+
+### ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **Zero-Config** | Works out-of-the-box with GLM/MiniMax models |
+| **Low Memory** | Runs smoothly on servers with 4GB RAM |
+| **MCP Protocol** | Model Context Protocol support for extensibility |
+| **One-Click Deploy** | `./deploy.sh` for zero-configuration startup |
+
+### 🎯 Core Capabilities
+
+- **Multimodal Input**: Images, text, video, and audio file uploads
+- **Face Recognition**: InsightFace ArcFace model, 99.77% LFW accuracy
+- **Memory System**: Qdrant vector database for semantic conversation search
+- **Knowledge Graph**: Structured storage of person attributes, preferences, and relationships
+- **Visual Thinking Network**: React Flow for thought chain visualization
+- **AI Chat**: GPT-4o-powered intelligent conversation with streaming responses
+- **Admin Dashboard**: System prompts, speaking styles, and model configuration
+
+### 🚀 Quick Start
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/SonicBotMan/ai-digital-human
+cd AI-Digital-Human
+
+# 2. Configure API keys
+cp .env.default .env
+# Edit .env and add your GLM_API_KEY
+
+# 3. One-click deployment
+./deploy.sh --production
+
+# 4. Access the app
+# Frontend: http://localhost:3000
+# API: http://localhost:8000
+# API Docs: http://localhost:8000/api/docs
+```
+
+### 📄 License
+
+MIT License - See [LICENSE](LICENSE) file.
+
+---
+
+## 🇨🇳 中文说明
+
+## ✨ 新特性
+
+| 特性                      | 说明                          |
+| ------------------------- | ----------------------------- |
+| **开箱即用**              | GLM/MiniMax 模型，开源免费用   |
+| **低内存优化**            | 4GB 服务器轻松运行             |
+| **MCP Protocol 支持**     | 模型上下文协议，扩展性强        |
+| **一键部署**              | `./deploy.sh` 零配置启动       |
 
 ## 🎯 核心功能
 
@@ -45,63 +105,58 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-## 🚀 快速开始
+## 🚀 快速开始 (开箱即用)
 
 ### 前置条件
-
 - Docker & Docker Compose
-- Node.js 18+ (本地开发)
-- Python 3.11+ (本地开发)
+- GLM API Key (从 https://open.bigmodel.cn/ 获取)
 
-### 使用Docker启动（推荐）
+### 一键部署 (推荐)
 
 ```bash
-# 1. 进入项目目录
+# 1. 克隆项目
+git clone <repo-url>
 cd "Agent Talk"
 
-# 2. 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入你的 OPENAI_API_KEY
+# 2. 配置API密钥
+cp .env.default .env
+# 编辑 .env，填入你的 GLM_API_KEY
 
-# 3. 启动所有服务
-docker compose up -d
+# 3. 一键部署
+./deploy.sh --production
 
 # 4. 访问应用
 # 前端: http://localhost:3000
 # API:  http://localhost:8000
-# API文档: http://localhost:8000/docs
+# API文档: http://localhost:8000/api/docs
 ```
 
-### 本地开发
+### 开发模式
 
 ```bash
-# 后端
-cd apps/api
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+# 使用 docker-compose.yml (需要 PostgreSQL + Qdrant)
+docker compose up -d
 
-# 前端
-cd apps/web
-npm install
-npm run dev  # 启动在 :3000
+# 或使用 Makefile
+make dev
 ```
 
 ## ⚙️ 环境变量
 
-| 变量                        | 说明            | 默认值                     |
-| --------------------------- | --------------- | -------------------------- |
-| `OPENAI_API_KEY`            | OpenAI API密钥  | **必需**                   |
-| `DEFAULT_LLM_MODEL`         | 默认LLM模型     | `openai:gpt-4o`            |
-| `VISION_MODEL`              | 视觉模型        | `gpt-4o`                   |
-| `WHISPER_MODEL_SIZE`        | Whisper模型大小 | `turbo`                    |
-| `FACE_RECOGNITION_MODEL`    | 人脸识别模型    | `buffalo_l`                |
-| `FACE_SIMILARITY_THRESHOLD` | 人脸匹配阈值    | `0.65`                     |
-| `POSTGRES_URL`              | PostgreSQL连接  | `postgresql+asyncpg://...` |
-| `REDIS_URL`                 | Redis连接       | `redis://redis:6379/0`     |
-| `QDRANT_HOST`               | Qdrant地址      | `qdrant`                   |
-| `QDRANT_PORT`               | Qdrant端口      | `6333`                     |
+| 变量                        | 说明              | 默认值                     |
+| --------------------------- | ----------------- | -------------------------- |
+| `GLM_API_KEY`               | 智谱GLM API密钥   | **必需** (开箱即用)        |
+| `MINIMAX_API_KEY`           | MiniMax API密钥   | 可选                       |
+| `OPENAI_API_KEY`            | OpenAI API密钥    | 可选                       |
+| `DEFAULT_LLM_MODEL`         | 默认LLM模型       | `glm-4-flash`             |
+| `VISION_MODEL`              | 视觉模型          | `glm-4v-flash`            |
+| `WHISPER_MODEL_SIZE`        | Whisper模型大小   | `turbo`                   |
+| `FACE_RECOGNITION_MODEL`    | 人脸识别模型      | `buffalo_l`               |
+| `FACE_SIMILARITY_THRESHOLD` | 人脸匹配阈值      | `0.65`                    |
+| `POSTGRES_URL`              | PostgreSQL连接    | `postgresql+asyncpg://...`|
+| `REDIS_URL`                 | Redis连接         | `redis://redis:6379/0`    |
+| `QDRANT_HOST`               | Qdrant地址        | `qdrant`                  |
+| `QDRANT_PORT`               | Qdrant端口        | `6333`                    |
 
 完整配置见 `.env.example`
 
@@ -149,6 +204,25 @@ Agent Talk/
 ├── turbo.json                  # Turborepo配置
 └── README.md                   # 本文件
 ```
+
+## 💾 内存优化说明
+
+默认配置针对 4GB 内存服务器优化:
+- 使用 SQLite 替代 PostgreSQL (节省 ~300MB)
+- 使用 Qdrant Local Mode (节省 ~300MB)
+- Redis 内存限制 200MB
+- 总内存占用 ~1.2-1.5GB
+
+## 🤖 支持的模型
+
+默认启用 (开箱即用):
+- LLM: GLM-4-Flash, GLM-4
+- Vision: GLM-4V-Flash
+- STT: Whisper Turbo
+
+可选配置:
+- MiniMax Text-01
+- OpenAI GPT-4o
 
 ## 🛠️ 技术栈
 

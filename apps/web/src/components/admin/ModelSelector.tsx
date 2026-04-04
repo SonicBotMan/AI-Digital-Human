@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Save, Loader2, AlertCircle, Cpu } from "lucide-react";
-import { api, ApiError } from "@/lib/api";
+import { adminApi, ApiError } from "@/lib/adminApi";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -20,44 +21,60 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+type VendorConfig = {
+  api_key?: string;
+  base_url?: string;
+  group_id?: string;
+};
+
 type ModelConfig = {
   llm_model: string;
   vision_model: string;
   stt_model: string;
   temperature: number;
   max_tokens: number;
+  vendor_configs: Record<string, VendorConfig>;
 };
 
 const LLM_MODELS = [
+  // GLM Models
+  { value: "glm-4-flash", label: "GLM-4 Flash (快速, 推荐)" },
+  { value: "glm-4", label: "GLM-4 (高性能)" },
+  { value: "glm-4-plus", label: "GLM-4 Plus" },
+  { value: "glm-3-5-turbo", label: "GLM-3.5 Turbo" },
+  // MiniMax Models
+  { value: "MiniMax-Text-01", label: "MiniMax Text-01 (海螺AI)" },
+  // OpenAI Models (kept for compatibility)
   { value: "gpt-4o", label: "GPT-4o" },
   { value: "gpt-4o-mini", label: "GPT-4o Mini" },
   { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-  { value: "claude-3-opus", label: "Claude 3 Opus" },
-  { value: "claude-3-sonnet", label: "Claude 3 Sonnet" },
-  { value: "claude-3-haiku", label: "Claude 3 Haiku" },
 ];
 
 const VISION_MODELS = [
+  // GLM Vision Models
+  { value: "glm-4v-flash", label: "GLM-4V Flash (快速, 推荐)" },
+  { value: "glm-4v-plus", label: "GLM-4V Plus" },
+  // OpenAI Vision Models (kept for compatibility)
   { value: "gpt-4o", label: "GPT-4o" },
   { value: "gpt-4-vision-preview", label: "GPT-4 Vision" },
-  { value: "claude-3-opus", label: "Claude 3 Opus" },
-  { value: "claude-3-sonnet", label: "Claude 3 Sonnet" },
 ];
 
 const STT_MODELS = [
-  { value: "whisper-1", label: "Whisper v1" },
-  { value: "whisper-large-v3", label: "Whisper Large v3" },
-  { value: "deepgram-nova-2", label: "Deepgram Nova 2" },
+  // Whisper models (CPU-friendly)
+  { value: "turbo", label: "Whisper Turbo (推荐)" },
+  { value: "base", label: "Whisper Base" },
+  { value: "small", label: "Whisper Small" },
+  { value: "medium", label: "Whisper Medium" },
 ];
 
 export function ModelSelector() {
   const [config, setConfig] = useState<ModelConfig>({
-    llm_model: "gpt-4o",
-    vision_model: "gpt-4o",
-    stt_model: "whisper-1",
+    llm_model: "glm-4-flash",
+    vision_model: "glm-4v-flash",
+    stt_model: "turbo",
     temperature: 0.7,
     max_tokens: 2048,
+    vendor_configs: {},
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -68,7 +85,7 @@ export function ModelSelector() {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.get<ModelConfig>("/admin/models");
+      const data = await adminApi.get<ModelConfig>("/admin/models");
       setConfig(data);
     } catch (err) {
       setError(
@@ -88,7 +105,7 @@ export function ModelSelector() {
       setSaving(true);
       setError(null);
       setSuccess(false);
-      await api.put("/admin/models", config);
+      await adminApi.put("/admin/models", config);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -289,14 +306,27 @@ export function ModelSelector() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label>Max Tokens</Label>
-              <span className="text-sm font-mono text-muted-foreground">
-                {config.max_tokens.toLocaleString()}
-              </span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={config.max_tokens}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      max_tokens: parseInt(e.target.value, 10) || 0,
+                    }))
+                  }
+                  className="h-8 w-24 font-mono text-xs"
+                  min={256}
+                  max={32768}
+                />
+                <span className="text-xs text-muted-foreground">tokens</span>
+              </div>
             </div>
             <input
               type="range"
               min="256"
-              max="8192"
+              max="16384"
               step="256"
               value={config.max_tokens}
               onChange={(e) =>
@@ -310,7 +340,158 @@ export function ModelSelector() {
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>Short (256)</span>
               <span>Medium (2048)</span>
-              <span>Long (8192)</span>
+              <span>Long (16384+)</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Provider Credentials</CardTitle>
+          <CardDescription className="text-xs">
+            Configure API keys and Base URLs for LLM providers. These will override environment variables.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* GLM Config */}
+          <div className="space-y-4 rounded-lg border p-4">
+            <h4 className="text-sm font-semibold text-primary">智谱AI (GLM)</h4>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="glm-api-key">API Key</Label>
+                <Input
+                  id="glm-api-key"
+                  type="password"
+                  placeholder="Leave empty to use .env"
+                  value={config.vendor_configs.glm?.api_key || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        glm: { ...c.vendor_configs.glm, api_key: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="glm-base-url">Base URL</Label>
+                <Input
+                  id="glm-base-url"
+                  placeholder="https://open.bigmodel.cn/api/paas/v4"
+                  value={config.vendor_configs.glm?.base_url || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        glm: { ...c.vendor_configs.glm, base_url: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* OpenAI Config */}
+          <div className="space-y-4 rounded-lg border p-4">
+            <h4 className="text-sm font-semibold text-primary">OpenAI</h4>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="openai-api-key">API Key</Label>
+                <Input
+                  id="openai-api-key"
+                  type="password"
+                  placeholder="sk-..."
+                  value={config.vendor_configs.openai?.api_key || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        openai: { ...c.vendor_configs.openai, api_key: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="openai-base-url">Base URL</Label>
+                <Input
+                  id="openai-base-url"
+                  placeholder="https://api.openai.com/v1"
+                  value={config.vendor_configs.openai?.base_url || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        openai: { ...c.vendor_configs.openai, base_url: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* MiniMax Config */}
+          <div className="space-y-4 rounded-lg border p-4">
+            <h4 className="text-sm font-semibold text-primary">MiniMax</h4>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="minimax-api-key">API Key</Label>
+                <Input
+                  id="minimax-api-key"
+                  type="password"
+                  value={config.vendor_configs.minimax?.api_key || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        minimax: { ...c.vendor_configs.minimax, api_key: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="minimax-group-id">Group ID</Label>
+                <Input
+                  id="minimax-group-id"
+                  value={config.vendor_configs.minimax?.group_id || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        minimax: { ...c.vendor_configs.minimax, group_id: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="minimax-base-url">Base URL</Label>
+                <Input
+                  id="minimax-base-url"
+                  placeholder="https://api.minimax.chat/v1"
+                  value={config.vendor_configs.minimax?.base_url || ""}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      vendor_configs: {
+                        ...c.vendor_configs,
+                        minimax: { ...c.vendor_configs.minimax, base_url: e.target.value },
+                      },
+                    }))
+                  }
+                />
+              </div>
             </div>
           </div>
         </CardContent>

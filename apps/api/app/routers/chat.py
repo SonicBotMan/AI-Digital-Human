@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid as _uuid
 from uuid import UUID
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from jose import JWTError
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
-from app.dependencies import ChatServiceDep
+from app.core.security import verify_access_token
+from app.dependencies import ChatServiceDep, DbSession, UserAuthDep
+from app.models.database import Conversation
 from app.models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -32,18 +37,21 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def send_message(
     body: ChatRequest,
     service: ChatServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[ChatResponse]:
     """Send a message to the AI digital human and receive a response."""
-    result = await service.send_message(
+    result = await service.chat(
+        user_id=current_user.id,
         message=body.message,
         conversation_id=body.conversation_id,
-        images=body.images,
-        system_prompt_id=body.system_prompt_id,
     )
     return StandardResponse(
         success=True,
         message="Message sent successfully",
-        data=ChatResponse(**result),
+        data=ChatResponse(
+            message=result["response"],
+            conversation_id=result["conversation_id"],
+        ),
     )
 
 
@@ -53,17 +61,45 @@ async def send_message(
 )
 async def list_conversations(
     service: ChatServiceDep,
+    current_user: UserAuthDep,
     *,
     page: int = 1,
     page_size: int = 20,
 ) -> StandardResponse[list[ConversationListResponse]]:
     """List all conversations for the current user."""
-    result = await service.list_conversations(page=page, page_size=page_size)
+    items, total = await service.list_conversations(
+        user_id=str(current_user.id),
+        page=page,
+        page_size=page_size,
+    )
     return StandardResponse(
         success=True,
-        message="Conversations retrieved",
-        data=[ConversationListResponse(**c) for c in result],
+        message=f"Conversations retrieved (total: {total})",
+        data=items,
     )
+
+
+async def _verify_conversation_ownership(
+    db: DbSession,
+    conversation_id: UUID,
+    current_user: UserAuthDep,
+) -> None:
+    """Verify that *conversation_id* belongs to *current_user*.
+
+    Raises ``HTTPException(403)`` if the conversation does not exist or
+    belongs to a different user.
+    """
+    stmt = select(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conversation not found or access denied",
+        )
 
 
 @router.get(
@@ -73,9 +109,12 @@ async def list_conversations(
 async def get_conversation(
     conversation_id: UUID,
     service: ChatServiceDep,
+    current_user: UserAuthDep,
+    db: DbSession,
 ) -> StandardResponse[list[ConversationMessage]]:
     """Retrieve the full message history of a conversation."""
-    result = await service.get_conversation(conversation_id=conversation_id)
+    await _verify_conversation_ownership(db, conversation_id, current_user)
+    result = await service.get_conversation_history(conversation_id=conversation_id)
     return StandardResponse(
         success=True,
         message="Conversation retrieved",
@@ -90,9 +129,22 @@ async def get_conversation(
 async def delete_conversation(
     conversation_id: UUID,
     service: ChatServiceDep,
+    current_user: UserAuthDep,
+    db: DbSession,
 ) -> StandardResponse[None]:
     """Delete a conversation and all its messages."""
-    await service.delete_conversation(conversation_id=conversation_id)
+    await _verify_conversation_ownership(db, conversation_id, current_user)
+
+    stmt = select(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    conversation = result.scalar_one_or_none()
+    if conversation:
+        await db.delete(conversation)
+        await db.commit()
+
     return StandardResponse(
         success=True,
         message="Conversation deleted",
@@ -105,9 +157,15 @@ async def delete_conversation(
 
 
 class _StreamMessage(BaseModel):
-    """Incoming WebSocket message schema for streaming chat."""
+    """Incoming WebSocket message schema for streaming chat.
 
-    message: str = Field(min_length=1, description="User text message")
+    Accepts both {"message": "..."} and {"content": "..."} formats
+    to maintain compatibility with the frontend protocol.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    message: str = Field(min_length=1, alias="content", description="User text message")
     conversation_id: UUID | None = Field(
         default=None,
         description="Continue an existing conversation",
@@ -125,21 +183,52 @@ async def stream_chat(
 ) -> None:
     """WebSocket endpoint for streaming chat responses.
 
+    Authentication
+    --------------
+    The client must include a valid JWT access token either:
+
+    1. Via the ``token`` query parameter: ``ws://…/stream?token=<jwt>``
+    2. Via the ``Authorization`` header in the handshake
+       (``Authorization: Bearer <jwt>``)
+
+    If the token is missing or invalid the connection is closed with
+    code 4001 (custom close code meaning "unauthenticated").
+
     Protocol
     --------
     Client sends JSON::
 
-        {"message": "Hello", "conversation_id": null}
+        {"content": "Hello", "conversation_id": null}
 
-    Server streams back JSON chunks::
+    Server streams back JSON events::
 
-        {"type": "chunk",  "content": "Hello"}
-        {"type": "done",   "conversation_id": "...", "message": "..."}
+        {"type": "start",  "id": "uuid"}
+        {"type": "token",  "content": "Hel"}
+        {"type": "token",  "content": "lo"}
+        ...
+        {"type": "end",    "conversation_id": "...", "message_id": "..."}
         {"type": "error",  "detail": "..."}
 
     The connection stays open for multiple round-trips until the client
     disconnects.
     """
+    # --- Authenticate the WebSocket handshake ---
+    token: str | None = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+
+    if not token:
+        await websocket.close(code=4001, reason="Missing authentication token")
+        return
+
+    try:
+        user_id = verify_access_token(token)
+    except JWTError:
+        await websocket.close(code=4001, reason="Invalid or expired token")
+        return
+
     await websocket.accept()
 
     try:
@@ -153,32 +242,19 @@ async def stream_chat(
                 continue
 
             try:
-                async for chunk in service.stream_message(
+                msg_id = str(_uuid.uuid4())
+                await websocket.send_json({"type": "start", "id": msg_id})
+
+                async for event in service.stream_chat(
+                    user_id=user_id,
                     message=payload.message,
                     conversation_id=payload.conversation_id,
-                    system_prompt_id=payload.system_prompt_id,
                 ):
-                    chunk_type = chunk.get("type", "chunk")
-
-                    if chunk_type == "done":
-                        await websocket.send_json(
-                            {
-                                "type": "done",
-                                "conversation_id": str(chunk.get("conversation_id", "")),
-                                "message": chunk.get("message", ""),
-                            }
-                        )
-                    else:
-                        await websocket.send_json(
-                            {
-                                "type": "chunk",
-                                "content": chunk.get("content", ""),
-                            }
-                        )
+                    await websocket.send_json(event)
 
             except Exception as exc:
-                logger.exception("Streaming error")
-                await websocket.send_json({"type": "error", "detail": str(exc)})
+                logger.exception("Chat error")
+                await websocket.send_json({"type": "error", "detail": "Server error occurred"})
 
     except WebSocketDisconnect:
         logger.debug("WebSocket client disconnected")

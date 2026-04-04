@@ -13,7 +13,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.dependencies import FaceServiceDep, MemoryServiceDep
+from app.dependencies import FaceServiceDep, MemoryServiceDep, UserAuthDep
 from app.models.schemas import (
     ErrorResponse,
     FaceIdentifyRequest,
@@ -98,6 +98,7 @@ def _build_thought_chain(steps: list[dict[str, str]]) -> list[ThoughtChainNode]:
 async def register_face_upload(
     face_service: FaceServiceDep,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
     name: Annotated[str, Form(min_length=1, max_length=128, description="Full name of the person")],
     image: Annotated[UploadFile, File(description="Face image (JPEG, PNG, or WebP)")],
 ) -> StandardResponse[FaceRegisterResponse]:
@@ -108,7 +109,7 @@ async def register_face_upload(
         raw_bytes = await image.read()
     except Exception as exc:
         logger.exception("Failed to read uploaded image")
-        raise HTTPException(status_code=400, detail=f"Cannot read uploaded file: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Cannot read uploaded file") from exc
 
     return await _do_register(face_service, memory_service, name, raw_bytes)
 
@@ -132,6 +133,7 @@ async def register_face_upload(
 async def register_face_json(
     face_service: FaceServiceDep,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
     body: FaceRegisterRequest,
 ) -> StandardResponse[FaceRegisterResponse]:
     """Register a new person by sending a base64-encoded face image (JSON body)."""
@@ -172,7 +174,7 @@ async def _do_register(
         raise HTTPException(status_code=422, detail=msg) from exc
     except Exception as exc:
         logger.exception("Face registration failed for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Face processing error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Face processing failed") from exc
 
     try:
         embedding = result["embedding"]
@@ -183,7 +185,7 @@ async def _do_register(
         )
     except Exception as exc:
         logger.exception("Failed to store face embedding for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Storage error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Storage operation failed") from exc
 
     try:
         memory_service.update_user_profile(
@@ -224,6 +226,7 @@ async def _do_register(
 async def identify_face_upload(
     face_service: FaceServiceDep,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
     image: Annotated[UploadFile, File(description="Face image to identify (JPEG, PNG, or WebP)")],
     top_k: Annotated[int, Form(ge=1, le=10)] = 1,
 ) -> StandardResponse[dict]:
@@ -234,7 +237,7 @@ async def identify_face_upload(
         raw_bytes = await image.read()
     except Exception as exc:
         logger.exception("Failed to read uploaded image")
-        raise HTTPException(status_code=400, detail=f"Cannot read uploaded file: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Cannot read uploaded file") from exc
 
     return await _do_identify(face_service, memory_service, raw_bytes, top_k)
 
@@ -258,6 +261,7 @@ async def identify_face_upload(
 async def identify_face_json(
     face_service: FaceServiceDep,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
     body: FaceIdentifyRequest,
 ) -> StandardResponse[dict]:
     """Identify a person by sending a base64-encoded face image (JSON body)."""
@@ -289,13 +293,13 @@ async def _do_identify(
         raise HTTPException(status_code=400, detail=msg) from exc
     except Exception as exc:
         logger.exception("Face embedding extraction failed")
-        raise HTTPException(status_code=500, detail=f"Face processing error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Face processing failed") from exc
 
     try:
         search_result = memory_service.search_face(embedding=query_embedding)
     except Exception as exc:
         logger.exception("Face search failed")
-        raise HTTPException(status_code=500, detail=f"Search error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Search operation failed") from exc
 
     thought_steps = [
         {"label": "Image Received", "type": "observation", "content": "Face image uploaded for identification"},
@@ -384,13 +388,14 @@ async def _do_identify(
 async def get_user_profile(
     user_id: uuid.UUID,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[PersonProfileDetail]:
     """Retrieve the full profile of a registered person."""
     try:
         profile_data = memory_service.get_user_profile(str(user_id))
     except Exception as exc:
         logger.exception("Failed to fetch profile for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Storage error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Storage operation failed") from exc
 
     if profile_data is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
@@ -435,13 +440,14 @@ async def update_user_profile(
     user_id: uuid.UUID,
     body: PersonProfileUpdate,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[PersonProfileDetail]:
     """Update the profile of an existing registered person."""
     try:
         existing = memory_service.get_user_profile(str(user_id))
     except Exception as exc:
         logger.exception("Failed to fetch profile for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Storage error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Storage operation failed") from exc
 
     if existing is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
@@ -454,7 +460,7 @@ async def update_user_profile(
         memory_service.update_user_profile(str(user_id), update_data)
     except Exception as exc:
         logger.exception("Failed to update profile for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Storage error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Storage operation failed") from exc
 
     updated_data = memory_service.get_user_profile(str(user_id))
     profile = PersonProfileDetail(
@@ -496,13 +502,14 @@ async def update_user_profile(
 async def delete_user(
     user_id: uuid.UUID,
     memory_service: MemoryServiceDep,
+    current_user: UserAuthDep,
 ) -> StandardResponse[None]:
     """Delete a registered person and all associated face data."""
     try:
         profile_data = memory_service.get_user_profile(str(user_id))
     except Exception as exc:
         logger.exception("Failed to fetch profile for user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Storage error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Storage operation failed") from exc
 
     if profile_data is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
@@ -528,7 +535,7 @@ async def delete_user(
         )
     except Exception as exc:
         logger.exception("Failed to delete user=%s", user_id)
-        raise HTTPException(status_code=500, detail=f"Deletion error: {exc}") from exc
+        raise HTTPException(status_code=500, detail="Deletion operation failed") from exc
 
     return StandardResponse(
         success=True,

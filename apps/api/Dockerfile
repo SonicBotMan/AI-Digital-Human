@@ -1,17 +1,22 @@
-# ---- Build stage ----
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
+
+# Install build tools for insightface compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 COPY app/ app/
 
 RUN pip install --no-cache-dir --prefix=/install .
 
-# ---- Runtime stage ----
 FROM python:3.11-slim AS runtime
 
 WORKDIR /app
+
+ENV PYTHONPATH=/app
 
 COPY --from=builder /install /usr/local
 

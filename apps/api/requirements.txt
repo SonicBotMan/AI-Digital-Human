@@ -1,6 +1,9 @@
 # This file is auto-generated from pyproject.toml.
 # Run: pip-compile pyproject.toml -o requirements.txt  (or pip install . && pip freeze > requirements.txt)
 
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+email-validator>=2.1.0
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
@@ -17,4 +20,6 @@ tiktoken>=0.7.0
 pillow>=10.2.0
 opencv-python-headless>=4.9.0
 zhipuai>=2.0.0
+aiosqlite>=0.19.0
+fastmcp>=0.1.0
 httpx>=0.27.0

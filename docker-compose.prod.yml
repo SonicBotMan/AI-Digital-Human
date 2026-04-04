@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis 7 (with memory limit)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: digitalhuman-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - digitalhuman-net
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend (with SQLite + Qdrant local mode)
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: digitalhuman-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////data/digitalhuman.db
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_MODE: local
+      QDRANT_HOST: localhost
+      QDRANT_PORT: 6333
+      # Provider: use GLM by default
+      LLM_PROVIDER: glm
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_MODEL: glm-4-flash
+      VISION_PROVIDER: glm
+      VISION_MODEL: glm-4v-flash
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-in-production}
+    volumes:
+      - api_data:/data  # For SQLite DB and Qdrant local storage
+      - models_data:/app/models  # For InsightFace models
+    mem_limit: 1.5g
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    networks:
+      - digitalhuman-net
+    ports:
+      - "8001:8000"
+
+  # ---------------------------------------------------------------------------
+  # Next.js Frontend
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api}
+    container_name: digitalhuman-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: "/api"
+      API_URL: http://api:8000
+    mem_limit: 512m
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    networks:
+      - digitalhuman-net
+    ports:
+      - "3001:3000"
+
+  # ---------------------------------------------------------------------------
+  # Nginx Reverse Proxy
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: digitalhuman-nginx
+    restart: unless-stopped
+    # ports:
+    #   - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - digitalhuman-net
+
+networks:
+  digitalhuman-net:
+    driver: bridge
+
+volumes:
+  redis_data:
+    name: digitalhuman-redis-data
+  api_data:
+    name: digitalhuman-api-data
+  models_data:
+    name: digitalhuman-models-data

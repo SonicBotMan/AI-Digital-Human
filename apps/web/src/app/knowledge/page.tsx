@@ -4,8 +4,7 @@ import { Brain, RefreshCw, Network } from "lucide-react";
 import { useGraphData } from "@/hooks/useGraphData";
 import { KnowledgeGraph } from "@/components/graph/KnowledgeGraph";
 import { Button } from "@/components/ui/button";
-
-const DEFAULT_USER_ID = "default";
+import { useAuth } from "@/components/layout/AuthProvider";
 
 function LoadingState() {
   return (
@@ -96,8 +95,35 @@ function ErrorState({
 }
 
 export default function KnowledgePage() {
+  const { user, loading: authLoading } = useAuth();
   const { nodes, edges, loading, error, refetch } =
-    useGraphData(DEFAULT_USER_ID);
+    useGraphData(user?.id ?? "");
+
+  if (authLoading) {
+    return (
+      <div className="flex h-full">
+        <LoadingState />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
+        <div className="h-20 w-20 rounded-2xl bg-muted flex items-center justify-center">
+          <Brain className="h-10 w-10 text-muted-foreground" />
+        </div>
+        <div className="text-center space-y-2 max-w-sm">
+          <p className="text-lg font-semibold text-foreground">
+            Please log in
+          </p>
+          <p className="text-sm text-muted-foreground">
+            You need to be logged in to view your knowledge graph.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
